@@ -8,16 +8,20 @@ intents.voice_states = True
 bot = commands.Bot(command_prefix='ok discord ', intents=intents)
 recognizer = sr.Recognizer()
 
+listening = False
+
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
 
 @bot.event
 async def on_voice_state_update(member, before, after):
+    global listening
     if after.channel and member.id != bot.user.id:
         if after.channel.name == 'Voice Channel Name':
             if after.channel != before.channel:
                 await after.channel.connect()
+                listening = True
 
 @bot.command()
 async def mute(ctx, member: discord.Member):
@@ -53,27 +57,36 @@ async def on_message(message):
         return
 
     if message.content.startswith('ok discord'):
-        voice_channel = None
-        for channel in bot.voice_clients:
-            if message.author in channel.members:
-                voice_channel = channel
-                break
-
-        if voice_channel:
-            audio = await message.attachments[0].read()
-            try:
-                with sr.AudioFile(audio) as source:
-                    audio_data = recognizer.record(source)
-                    command = recognizer.recognize_google(audio_data)
-                    await bot.process_commands(await bot.get_context(message))
-            except sr.UnknownValueError:
-                await message.channel.send("I'm sorry, I couldn't understand your command.")
-            except sr.RequestError:
-                await message.channel.send("I'm sorry, there was an issue processing your command.")
-        else:
-            await message.channel.send("Please join a voice channel first.")
+        global listening
+        listening = True
 
     await bot.process_commands(message)
+
+def process_audio(audio):
+    try:
+        with sr.AudioFile(audio) as source:
+            audio_data = recognizer.record(source)
+            command = recognizer.recognize_google(audio_data)
+            if command == 'ok discord':
+                global listening
+                listening = True
+    except sr.UnknownValueError:
+        pass
+    except sr.RequestError:
+        pass
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    if after.channel and member.id != bot.user.id:
+        if after.channel.name == 'Voice Channel Name':
+            if after.channel != before.channel:
+                await after.channel.connect()
+                while True:
+                    global listening
+                    if listening:
+                        audio = await bot.voice_clients[0].record_and_save()
+                        process_audio(audio)
+                        listening = False
 
 
 from dis_token import token
