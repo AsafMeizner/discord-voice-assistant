@@ -1,93 +1,72 @@
+# discord imports
 import discord
+from discord import app_commands
+
+# speech recognition imports
 import speech_recognition as sr
-from discord.ext import commands
 
+# text to speech imports 
+import pyttsx3
+engine = pyttsx3.init()
+engine.setProperty('rate', 50)  
+
+# set up intents
 intents = discord.Intents.default()
-intents.voice_states = True
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
 
-bot = commands.Bot(command_prefix='ok discord ', intents=intents)
-recognizer = sr.Recognizer()
+# join vc command
+@tree.command(name="join-vc", description="voice assistant joins the vc you are in")
+async def join_vc(interation):
+    # check if the user is in a vc
+    if interation.user.voice and interation.user.voice.channel:
+        # join the vc
+        try:
+            await interation.user.voice.channel.connect()
+        except:
+            await interation.response.send_message("Unable to join vc.", ephemeral=True)
+        
+        # if joined vc
+        if interation.guild.voice_client and interation.guild.voice_client.is_connected():
+            await interation.response.send_message("Joined vc.", ephemeral=True)
+    
+    # if the user is not in a vc
+    else:
+        # send a message saying that they are not in a vc
+        await interation.response.send_message("You are not in a voice channel.", ephemeral=True)
 
-listening = False
+# leave vc command
+@tree.command(name="leave-vc", description="voice assistant leaves the vc you are in")
+async def leave_vc(interation):
+    if interation.guild.voice_client and interation.guild.voice_client.is_connected():
+        await interation.guild.voice_client.disconnect()
+        await interation.response.send_message("Left vc.", ephemeral=True)
+    else:
+        await interation.response.send_message("I am not connected to a voice channel.", ephemeral=True)
 
-@bot.event
+# text to speech command
+@tree.command(name="say", description="voice assistant says what you want it to say")
+async def say(interation, text: str):  # Add type annotation for the 'text' parameter
+    if interation.guild.voice_client and interation.guild.voice_client.is_connected():
+        engine.say(text)
+        await interation.response.send_message('Said "' + text + '"', ephemeral=True)
+        engine.runAndWait()
+    else:
+        try:
+            await interation.user.voice.channel.connect()
+            engine.say(text)
+            await interation.response.send_message('Said "' + text + '"', ephemeral=True)
+            engine.runAndWait()
+        except:
+            await interation.response.send_message("not connected to vc, and couldent connect.", ephemeral=True)
+
+# on start event
+@client.event
 async def on_ready():
-    print(f'Logged in as {bot.user.name}')
+    await tree.sync()
+    print("Ready!")
+    await client.change_presence(activity=discord.Game(name="/help"))
 
-@bot.event
-async def on_voice_state_update(member, before, after):
-    global listening
-    if after.channel and member.id != bot.user.id:
-        if after.channel.name == 'Voice Channel Name':
-            if after.channel != before.channel:
-                await after.channel.connect()
-                listening = True
-
-@bot.command()
-async def mute(ctx, member: discord.Member):
-    if ctx.author.voice and ctx.author.voice.channel:
-        if ctx.author.voice.channel.permissions_for(ctx.author).mute_members:
-            if ctx.voice_client and ctx.voice_client.is_connected():
-                await member.edit(mute=True)
-                await ctx.send(f'{member.display_name} has been muted.')
-            else:
-                await ctx.send('I am not connected to a voice channel.')
-        else:
-            await ctx.send('You do not have the permission to mute members.')
-    else:
-        await ctx.send('You are not in a voice channel.')
-
-@bot.command()
-async def unmute(ctx, member: discord.Member):
-    if ctx.author.voice and ctx.author.voice.channel:
-        if ctx.author.voice.channel.permissions_for(ctx.author).mute_members:
-            if ctx.voice_client and ctx.voice_client.is_connected():
-                await member.edit(mute=False)
-                await ctx.send(f'{member.display_name} has been unmuted.')
-            else:
-                await ctx.send('I am not connected to a voice channel.')
-        else:
-            await ctx.send('You do not have the permission to mute members.')
-    else:
-        await ctx.send('You are not in a voice channel.')
-
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-
-    if message.content.startswith('ok discord'):
-        global listening
-        listening = True
-
-    await bot.process_commands(message)
-
-def process_audio(audio):
-    try:
-        with sr.AudioFile(audio) as source:
-            audio_data = recognizer.record(source)
-            command = recognizer.recognize_google(audio_data)
-            if command == 'ok discord':
-                global listening
-                listening = True
-    except sr.UnknownValueError:
-        pass
-    except sr.RequestError:
-        pass
-
-@bot.event
-async def on_voice_state_update(member, before, after):
-    if after.channel and member.id != bot.user.id:
-        if after.channel.name == 'Voice Channel Name':
-            if after.channel != before.channel:
-                await after.channel.connect()
-                while True:
-                    global listening
-                    if listening:
-                        audio = await bot.voice_clients[0].record_and_save()
-                        process_audio(audio)
-                        listening = False
-
-
+# run bot
 from dis_token import token
-bot.run(token)
+client.run(token)
